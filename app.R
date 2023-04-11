@@ -8,8 +8,9 @@ library(scales)
 library(grid)
 library(gridExtra)
 library(caret)
-library(tidyverse)
+#library(tidyverse)
 library(broom)
+library(pROC)
 
 setwd(getwd())
 
@@ -39,10 +40,13 @@ ui <- dashboardPage(
       icon = icon('calendar-alt')
     ),
     menuItem(
-      'Correlation',
+      'Performance Analysis',
       tabName = 'corrSummary',
       icon = icon('tachometer')
-    )
+    ),
+    menuItem("Source code", 
+             icon = icon("code"), 
+             href = "https://github.com/radhika-acc/5250-Term-project/blob/main/app.R")
   )),
   dashboardBody(tabItems(
     # Demographics tab -----------------------------------
@@ -206,22 +210,22 @@ ui <- dashboardPage(
               )
             )),
     # Correlation Summary tab -----------------------------------
+
     tabItem(
       tabName = 'corrSummary',
-      h2('Regression Model For Tenure and Total Charges', align = 'center'),
+      h2('Performance Analysis', align = 'center'),
       tags$p(
-        'Here tenure is an exploratory variable and total charges is the response variable, as
-              the tenure increases the total charges that the customers paid for services of customer
-              also increases.',
+        'The ROC curve indicates that the model has a relatively good ability to 
+        distinguish between the two classes, as the area under the curve (AUC) is 0.84, 
+        which is significantly higher than 0.5 (the AUC value for a random classifier). 
+        This means that the model is able to correctly identify a high proportion of 
+        customers who are likely to churn, while keeping the false positive rate 
+        (customers who are predicted to churn but do not) relatively low.',
         style = 'font-size: 120%;margin-left:2.5em;'
       ),
-      tags$p('Tenure = 76.27 * (TotalCharges) – 189.52', style = 'font-size:
-             120%;margin-left:2.5em;'),
-      tags$p('R-squared value = 0.6821', style = 'font-size:
-             120%;margin-left:2.5em;'),
-      h2('Regression Plot', align = 'center'),
+      h2('ROC curve', align = 'center'),
       fluidRow(shinydashboard::box(
-        width = 12, plotOutput("regModel", height = 200)
+        width = 12, plotOutput("regModel", height = 300)
       ))
     )
     
@@ -774,16 +778,30 @@ server <- function(input, output) {
   
   output$regModel <- renderPlot({
     
-    ggplot(telecomCustomerChurn, aes(x = tenure, y = TotalCharges, color = Churn)) +
-      geom_point() +
-      geom_smooth(method = "lm",
-                  se = FALSE,
-                  color = "black") +
-      labs(title = "Regression Model of Tenure and Total Charges",
-           x = "Tenure",
-           y = "Total Charges") +
-      scale_color_manual(name = "Churn", labels = c("No", "Yes"), values = c("orange", "purple")) +
-      theme_minimal()
+    telecomCustomerChurn$Churn <- ifelse(telecomCustomerChurn$Churn == "Yes", 1, 0)
+    
+    set.seed(123)
+    train_index <- sample(nrow(telecomCustomerChurn), size = 0.7 * nrow(telecomCustomerChurn))
+    train_set <- telecomCustomerChurn[train_index, ]
+    test_set <- telecomCustomerChurn[-train_index, ]
+    
+    # Create the logistic regression model using only the training set
+    logit_model <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges,
+                       family = "binomial",
+                       data = train_set)
+    
+    # Calculate predicted probabilities for the test set using the model
+    logit_prob <- predict(logit_model, newdata = test_set, type = "response")
+    
+    # Create the ROC curve
+    roc_obj <- roc(test_set$Churn, logit_prob)
+    
+    # Plot the ROC curve
+    ggroc(roc_obj, color = "red") +
+      labs(x = "False Positive Rate (1 - Specificity)",
+                   y = "True Positive Rate (Sensitivity)",
+                  title = "ROC Curve for GLM and Logit Model") + theme_minimal()
+
   })
   
   output$ChurnVsRetention <- renderPlot({
